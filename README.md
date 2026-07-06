@@ -169,7 +169,7 @@ python -m pdf_extractor run --pdf book.pdf --example "..." --provider google --m
 
 ---
 
-### 安装
+### 安装与接入
 
 **1. 克隆仓库**
 
@@ -184,39 +184,83 @@ cd scanned-pdf-extractor-skill
 pip install -r requirements.txt
 ```
 
-**3. 注册为 MCP Server**
+**3. 启动 MCP Server**
 
-在 Claude Code 的配置文件 `~/.claude/settings.json` 中添加：
+```bash
+# stdio 模式（适合本地 MCP 客户端）
+python server.py
 
+# HTTP/SSE 模式（适合远程部署或 HTTP 接入）
+python server.py --http --port 8080
+```
+
+**4. 接入你的 Agent 平台**
+
+本工具遵循标准 MCP 协议，任何支持 MCP 的平台均可接入。
+
+> **重要**：不同 agent 平台调用 MCP 工具的方式不同，但工具本身的逻辑完全一样。你的 agent 调用工具，工具内部再调用你配置的 AI 模型（Claude / GPT-4o / Gemini）来做实际提取工作。
+
+**Claude Code**（`~/.claude/settings.json`）：
 ```json
 {
   "mcpServers": {
     "pdf-extractor": {
       "command": "python",
       "args": ["/你的路径/scanned-pdf-extractor-skill/server.py"],
-      "env": {
-        "ANTHROPIC_API_KEY": "sk-ant-..."
-      }
+      "env": { "ANTHROPIC_API_KEY": "sk-ant-..." }
     }
   }
 }
 ```
 
-将 `/你的路径/` 替换为你实际克隆的目录路径。
+**OpenAI Agents SDK**：
+```python
+from agents import Agent, MCPServerStdio
 
-**4. （可选）注册 Skill 文件**
+server = MCPServerStdio(
+    command="python",
+    args=["/你的路径/scanned-pdf-extractor-skill/server.py"],
+    env={"OPENAI_API_KEY": "sk-...", "PDF_EXTRACTOR_PROVIDER": "openai"},
+)
+agent = Agent(name="extractor", mcp_servers=[server])
+```
+
+**HTTP 客户端（任意平台）**：
+```bash
+# 先以 HTTP 模式启动
+python server.py --http --port 8080
+
+# MCP SSE 端点：http://localhost:8080/sse
+```
+
+**LangChain / 自建 Agent**：
+```python
+from langchain_mcp_adapters.client import MultiServerMCPClient
+
+client = MultiServerMCPClient({
+    "pdf-extractor": {
+        "command": "python",
+        "args": ["/你的路径/scanned-pdf-extractor-skill/server.py"],
+        "env": {"ANTHROPIC_API_KEY": "sk-ant-..."},
+        "transport": "stdio",
+    }
+})
+tools = await client.get_tools()
+```
+
+**5. （可选）注册 Skill 文件（仅 Claude Code）**
 
 ```bash
 cp SKILL.md ~/.claude/skills/pdf-extract.md
 ```
 
-注册后可以直接对 Claude 说"帮我提取这本 PDF"来触发工具，无需手动调用。
+注册后可以直接说"帮我提取这本 PDF"来触发工具，无需手动调用。
 
 ### 使用方式
 
-**通过 Claude Code（推荐）**
+**通过任意 MCP Agent**
 
-MCP Server 注册后，直接告诉 Claude 你想做什么：
+连接后，告诉你的 agent 想做什么：
 
 > *"分析一下这本书的结构：`/path/to/mybook.pdf`"*
 
@@ -532,43 +576,82 @@ cd scanned-pdf-extractor-skill
 pip install -r requirements.txt
 ```
 
-**3. Register as an MCP server**
+**3. Start the MCP server**
 
-Add this to your Claude Code settings (`~/.claude/settings.json`):
+```bash
+# stdio mode (for local MCP clients)
+python server.py
 
+# HTTP/SSE mode (for remote or HTTP-based clients)
+python server.py --http --port 8080
+```
+
+**4. Connect from your agent platform**
+
+The server follows the standard MCP protocol and works with any MCP-compatible client.
+
+**Claude Code** (`~/.claude/settings.json`):
 ```json
 {
   "mcpServers": {
     "pdf-extractor": {
       "command": "python",
       "args": ["/absolute/path/to/scanned-pdf-extractor-skill/server.py"],
-      "env": {
-        "ANTHROPIC_API_KEY": "sk-ant-..."
-      }
+      "env": { "ANTHROPIC_API_KEY": "sk-ant-..." }
     }
   }
 }
 ```
 
-Replace `/absolute/path/to/` with where you cloned the repo. For example:
-- Mac/Linux: `"/Users/yourname/scanned-pdf-extractor-skill/server.py"`
-- Windows: `"C:\\Users\\yourname\\scanned-pdf-extractor-skill\\server.py"`
+**OpenAI Agents SDK:**
+```python
+from agents import Agent, MCPServerStdio
 
-**4. (Optional) Register the skill file for natural language triggers**
+server = MCPServerStdio(
+    command="python",
+    args=["/path/to/scanned-pdf-extractor-skill/server.py"],
+    env={"ANTHROPIC_API_KEY": "sk-ant-..."},
+)
+agent = Agent(name="extractor", mcp_servers=[server])
+```
+
+**HTTP-based client (any platform):**
+```bash
+# Start in HTTP mode first
+python server.py --http --port 8080
+
+# Connect via SSE endpoint
+# MCP endpoint: http://localhost:8080/sse
+```
+
+**LangChain / custom agent:**
+```python
+from langchain_mcp_adapters.client import MultiServerMCPClient
+
+client = MultiServerMCPClient({
+    "pdf-extractor": {
+        "command": "python",
+        "args": ["/path/to/scanned-pdf-extractor-skill/server.py"],
+        "env": {"ANTHROPIC_API_KEY": "sk-ant-..."},
+        "transport": "stdio",
+    }
+})
+tools = await client.get_tools()
+```
+
+**5. (Optional) Register the skill file for Claude Code natural language triggers**
 
 ```bash
 cp SKILL.md ~/.claude/skills/pdf-extract.md
 ```
 
-This lets you trigger the tool by just saying "extract this PDF" instead of calling tools explicitly.
-
 ---
 
 ## Usage
 
-### Via Claude Code (recommended)
+### Via any MCP agent
 
-Once the MCP server is registered, just tell Claude what you want:
+Once connected, ask your agent to use the tools:
 
 > *"Analyze the structure of `/path/to/mybook.pdf`"*
 
