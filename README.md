@@ -25,6 +25,22 @@ Point it at any scanned PDF, give it a 2-line example of what you want, and it h
   A: C = S·N(d₁) - K·e^{-rT}·N(d₂)，其中...  ✓ LaTeX 公式完整保留
 ```
 
+### 与其他方案对比
+
+| | 传统 OCR<br>（Tesseract / PaddleOCR） | 直接把 PDF 扔给模型 | **本工具** |
+|---|---|---|---|
+| **数学公式** | ❌ 识别成乱码或跳过 | ⚠️ 能读，但不保证 LaTeX 格式 | ✅ 输出标准 LaTeX |
+| **双列排版** | ❌ 左右列内容混排 | ⚠️ 看模型上下文窗口大小 | ✅ 先分析排版再提取 |
+| **结构化输出** | ❌ 纯文本，无结构 | ⚠️ 需要手动写 prompt | ✅ 自动生成 JSON，含题号/置信度/页码 |
+| **跨页内容** | ❌ 按页切断，无法合并 | ❌ 超长书籍超出上下文限制 | ✅ 滑动窗口 + 去重合并 |
+| **长书支持** | ✅ 无限制 | ❌ 受模型上下文窗口限制（通常 200 页以内） | ✅ 无页数限制，按窗口分批处理 |
+| **需要配置** | ❌ 需安装 OCR 引擎、训练模型 | ⚠️ 需要自己写 prompt、处理输出 | ✅ 只需提供 2 行示例 |
+| **适合的书** | 纯文字书（无公式）| 短文档（< 50 页）| 任意长度扫描版书籍 |
+
+**传统 OCR 的核心问题：** 只负责"把图片变成文字"，不理解语义——它不知道哪里是题目、哪里是答案、哪里是页眉页脚。输出是一堆乱序的文本块，还需要大量后处理才能用。
+
+**直接扔给模型的核心问题：** 上下文窗口有限。一本 200 页的书，图片 token 加起来轻松超过 100K，大多数模型处理不了，即使能处理也贵得多。而且模型没有针对这本书的结构知识，容易漏题或格式不一致。
+
 ### 工作原理
 
 ```
@@ -285,6 +301,24 @@ This tool:
   Q: What is the Black-Scholes formula?        ✓ clean markdown
   A: C = S·N(d₁) - K·e^{-rT}·N(d₂) where...  ✓ LaTeX preserved
 ```
+
+---
+
+## Why Not Just Use OCR or Drop the PDF into a Chat?
+
+| | Traditional OCR<br>(Tesseract / PaddleOCR) | Dropping PDF into a chat | **This tool** |
+|---|---|---|---|
+| **Math formulas** | ❌ Garbled or skipped | ⚠️ Readable but no LaTeX output | ✅ Outputs standard LaTeX |
+| **Double-column layout** | ❌ Left and right columns get mixed | ⚠️ Depends on context window size | ✅ Detects layout before extracting |
+| **Structured output** | ❌ Plain text dump, no structure | ⚠️ Requires manual prompt engineering | ✅ Auto-generates JSON with markers, confidence, page numbers |
+| **Cross-page content** | ❌ Cuts at page boundaries | ❌ Long books exceed context limits | ✅ Sliding window + deduplication |
+| **Long books** | ✅ No limit | ❌ Limited by model context window (typically < 200 pages) | ✅ No page limit, processed in batches |
+| **Setup required** | ❌ Install OCR engine, train on domain | ⚠️ Write prompts, parse output manually | ✅ Just provide a 2-line example |
+| **Best for** | Plain-text books (no formulas) | Short documents (< 50 pages) | Any length scanned book |
+
+**The core problem with traditional OCR:** It only converts images to text — it doesn't understand meaning. It doesn't know what's a question, what's an answer, what's a page header. You get a jumbled text dump that still needs heavy post-processing.
+
+**The core problem with dropping PDFs into a chat:** Context windows are finite. A 200-page book easily exceeds 100K image tokens — most models can't handle it, and even if they can, it's far more expensive. The model also has no prior knowledge of the book's structure, leading to missed items and inconsistent formatting.
 
 ---
 
