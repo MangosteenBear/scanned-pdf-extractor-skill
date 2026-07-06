@@ -74,8 +74,10 @@ pip install -r requirements.txt
 **3. Copy the skill file to Claude Code**
 
 ```bash
-cp skill.md ~/.claude/skills/pdf-extract.md
+cp SKILL.md ~/.claude/skills/pdf-extract.md
 ```
+
+This registers the skill so Claude Code knows when and how to run it.
 
 **4. Set your API key**
 
@@ -91,11 +93,17 @@ Or pass it directly with `--api-key` each time.
 
 ### Option A: Use it through Claude Code (recommended)
 
-Open Claude Code and just say:
+In Claude Code, type `/pdf-extract` to invoke the skill directly, or just describe what you want:
 
-> "Help me extract content from this PDF: `/path/to/mybook.pdf`"
+> "Extract all Q&A from this book: `/path/to/mybook.pdf`"
 
-Claude will ask for your extraction example and handle the rest.
+Claude will walk you through providing an extraction example, then run the full pipeline automatically — showing progress and cost as it goes.
+
+You can also pass details upfront:
+
+> `/pdf-extract --pdf /path/to/mybook.pdf --pages 1-30`
+
+The skill handles everything: analyzing the book structure, generating the right prompt, extracting, and deduplicating.
 
 ### Option B: Run it directly from the command line
 
