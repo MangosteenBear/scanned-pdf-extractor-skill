@@ -1,8 +1,4 @@
-"""Phase 2: 内容提取
-
-用 book-specific prompt + 用户自定义 schema 做滑窗提取。
-schema 由用户示例推导，支持任意结构（不限于 Q&A）。
-"""
+"""Phase 2: 内容提取"""
 import base64
 import io
 import json
@@ -10,21 +6,20 @@ from pathlib import Path
 from typing import Any
 
 from config import DEFAULT, ExtractorConfig
+from client import create_message, estimate_cost
 
-# 通用 item schema：stem/answer 是必须字段，其余由用户示例决定
-# 用户可通过 extra_fields 参数扩展
 _BASE_ITEM_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "stem_markdown": {"type": "string"},
-        "stem_latex": {"type": "string"},
-        "answer_markdown": {"type": "string"},
-        "marker": {"type": "string"},
-        "page_start": {"type": "integer"},
-        "page_end": {"type": "integer"},
-        "confidence": {"type": "number"},
-        "needs_review": {"type": "boolean"},
-        "notes": {"type": "string"},
+        "stem_markdown":  {"type": "string"},
+        "stem_latex":     {"type": "string"},
+        "answer_markdown":{"type": "string"},
+        "marker":         {"type": "string"},
+        "page_start":     {"type": "integer"},
+        "page_end":       {"type": "integer"},
+        "confidence":     {"type": "number"},
+        "needs_review":   {"type": "boolean"},
+        "notes":          {"type": "string"},
     },
     "required": [
         "stem_markdown", "stem_latex", "answer_markdown",
@@ -36,9 +31,7 @@ _BASE_ITEM_SCHEMA: dict[str, Any] = {
 
 _OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
-    "properties": {
-        "items": {"type": "array", "items": _BASE_ITEM_SCHEMA}
-    },
+    "properties": {"items": {"type": "array", "items": _BASE_ITEM_SCHEMA}},
     "required": ["items"],
     "additionalProperties": False,
 }
@@ -76,7 +69,7 @@ def _build_content(window: list[dict], cfg: ExtractorConfig) -> list[dict]:
     content: list[dict] = []
     page_nos = [p["page"] for p in window]
     for p in window:
-        content.append({"type": "text", "text": f"【第 {p['page']} 页】"})
+        content.append({"type": "text", "text": f"[Page {p['page']}]"})
         content.append({
             "type": "image",
             "source": {
@@ -88,35 +81,12 @@ def _build_content(window: list[dict], cfg: ExtractorConfig) -> list[dict]:
     content.append({
         "type": "text",
         "text": (
-            f"以上依次是第 {page_nos[0]}–{page_nos[-1]} 页。"
-            f"请提取其中所有内容，按 schema 输出 {{\"items\": [...]}}。"
-            f"page_start / page_end 用上面标注的页码。"
+            f"The above are pages {page_nos[0]}–{page_nos[-1]}. "
+            f"Extract all content and output {{\"items\": [...]}}. "
+            f"Use the page numbers shown above for page_start / page_end."
         ),
     })
     return content
-
-
-def _estimate_cost(usage: dict, cfg: ExtractorConfig, batch: bool) -> float:
-    m = cfg.batch_mult if batch else 1.0
-    cost = (
-        usage.get("input_tokens", 0) * cfg.price_in
-        + usage.get("cache_read_input_tokens", 0) * cfg.price_in * 0.1
-        + usage.get("cache_creation_input_tokens", 0) * cfg.price_in * 1.25
-        + usage.get("output_tokens", 0) * cfg.price_out
-    ) / 1_000_000
-    return cost * m
-
-
-def _usage_dict(usage: Any) -> dict:
-    return {k: getattr(usage, k, 0) or 0 for k in
-            ["input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"]}
-
-
-def _parse_items(message: Any) -> list[dict]:
-    for block in message.content:
-        if getattr(block, "type", None) == "text":
-            return json.loads(block.text).get("items", [])
-    return []
 
 
 def _append_jsonl(path: str, obj: dict) -> None:
@@ -135,25 +105,15 @@ def extract_pages(
     """
     对渲染后的页面做内容提取。
 
-    Args:
-        render_meta_path: render_meta.json 路径
-        out_dir:          产物目录
-        system_prompt:    由 prompt_builder 生成的 book-specific prompt
-        cfg:              配置
-        page_range:       只处理这些页码；None = 全书
-        on_progress:      可选回调 fn(current_window, total_windows, n_items, cost)
-
     Returns:
         {"windows": [...], "total_cost": float, "n_windows": int}
     """
-    import anthropic
-
     meta = json.loads(Path(render_meta_path).read_text(encoding="utf-8"))
     pages = meta["pages"]
     if page_range:
         pages = [p for p in pages if p["page"] in page_range]
     if not pages:
-        raise ValueError("没有符合 page_range 的页面")
+        raise ValueError("No pages matched the given page_range.")
 
     wins = _windows(pages, cfg.window_size, cfg.window_overlap)
     out = Path(out_dir)
@@ -161,33 +121,21 @@ def extract_pages(
     raw_path = out / "extract_raw.jsonl"
     raw_path.write_text("", encoding="utf-8")
 
-    system = [{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}]
-    client = anthropic.Anthropic()
-
     results, cumulative = [], 0.0
     for idx, win in enumerate(wins):
         page_nos = [p["page"] for p in win]
         try:
-            msg = client.messages.create(
-                model=cfg.model,
-                max_tokens=cfg.max_tokens,
-                system=system,
-                thinking={"type": "disabled"},
-                output_config={"effort": "low", "format": {"type": "json_schema", "schema": _OUTPUT_SCHEMA}},
-                messages=[{"role": "user", "content": _build_content(win, cfg)}],
-            )
+            items = create_message(system_prompt, _build_content(win, cfg), cfg, _OUTPUT_SCHEMA)
+            cost = 0.0  # 精确 token 计费需各 provider SDK 支持，此处简化
         except Exception as e:
-            r = {"pages": page_nos, "items": [], "usage": {}, "cost": 0.0,
-                 "error": type(e).__name__ + ": " + str(e)[:160]}
+            r = {"pages": page_nos, "items": [], "cost": 0.0,
+                 "error": type(e).__name__ + ": " + str(e)[:200]}
             results.append(r)
             _append_jsonl(str(raw_path), r)
             continue
 
-        usage = _usage_dict(msg.usage)
-        cost = _estimate_cost(usage, cfg, batch=False)
         cumulative += cost
-        items = _parse_items(msg)
-        r = {"pages": page_nos, "items": items, "usage": usage, "cost": cost}
+        r = {"pages": page_nos, "items": items, "cost": cost}
         results.append(r)
         _append_jsonl(str(raw_path), r)
 

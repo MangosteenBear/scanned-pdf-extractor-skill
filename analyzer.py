@@ -10,45 +10,47 @@ from pathlib import Path
 from typing import Any
 
 from config import DEFAULT, ExtractorConfig
+from client import create_message
 
 _PROFILE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "layout": {
-            "type": "string",
-            "description": "版面类型: single_column / double_column / mixed"
-        },
-        "language": {
-            "type": "string",
-            "description": "主要语言: en / zh / mixed"
-        },
-        "qa_marker_style": {
-            "type": "string",
-            "description": "题目标记方式，如 'Q: ... A: ...' / 'Problem N. ... Solution.' / '第N题 ... 解答：' 等，用原文举例"
-        },
-        "math_density": {
-            "type": "string",
-            "description": "公式密度: none / low / high"
-        },
-        "has_chapter_structure": {
-            "type": "boolean",
-            "description": "是否有章节/小节标题"
-        },
-        "typical_qa_length": {
-            "type": "string",
-            "description": "典型题目长度: short(<100字) / medium(100-300字) / long(>300字)"
-        },
-        "content_notes": {
-            "type": "string",
-            "description": "其他需要提取时注意的特殊排版或内容特征，简短说明"
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "layout":               {"type": "string"},
+                    "language":             {"type": "string"},
+                    "qa_marker_style":      {"type": "string"},
+                    "math_density":         {"type": "string"},
+                    "has_chapter_structure":{"type": "boolean"},
+                    "typical_qa_length":    {"type": "string"},
+                    "content_notes":        {"type": "string"},
+                },
+                "required": ["layout", "language", "qa_marker_style", "math_density",
+                             "has_chapter_structure", "typical_qa_length", "content_notes"],
+                "additionalProperties": False,
+            }
         }
     },
-    "required": ["layout", "language", "qa_marker_style", "math_density",
-                 "has_chapter_structure", "typical_qa_length", "content_notes"],
-    "additionalProperties": False
+    "required": ["items"],
+    "additionalProperties": False,
 }
 
-_ANALYZE_SYSTEM = """你是一名文档结构分析专家。我会给你一本书的几个抽样页面，你的任务是分析这本书的排版结构和内容特征，输出一个简短的结构描述，用于指导后续的内容提取工作。请只描述你实际观察到的，不要猜测。"""
+_ANALYZE_SYSTEM = (
+    "You are a document structure analyst. I will show you sampled pages from a book. "
+    "Analyze the layout and content characteristics, then output a single profile object inside the 'items' array. "
+    "Only describe what you actually observe — do not guess."
+    "\n\nFields to fill:\n"
+    "- layout: single_column / double_column / mixed\n"
+    "- language: en / zh / mixed\n"
+    "- qa_marker_style: describe how Q&A are marked, e.g. 'Q: ... A: ...' or 'Problem N. ... Solution.'\n"
+    "- math_density: none / low / high\n"
+    "- has_chapter_structure: true/false\n"
+    "- typical_qa_length: short(<100 words) / medium(100-300 words) / long(>300 words)\n"
+    "- content_notes: any other layout or content quirks worth noting for extraction"
+)
 
 
 def _encode_image(path: str, max_long_edge: int) -> str:
@@ -69,58 +71,34 @@ def _encode_image(path: str, max_long_edge: int) -> str:
 
 
 def _sample_pages(pages: list[dict], n: int) -> list[dict]:
-    """从首/中/尾均匀抽样，跳过第 1-2 页（通常是封面/版权页）"""
-    candidates = pages[2:]
+    candidates = pages[2:]  # 跳过封面
     if len(candidates) <= n:
         return candidates
     step = len(candidates) / n
     return [candidates[int(i * step)] for i in range(n)]
 
 
-def analyze_book(
-    render_meta_path: str,
-    cfg: ExtractorConfig = DEFAULT,
-) -> dict:
-    """
-    分析书籍结构，返回 BookProfile dict。
-    """
-    import anthropic
-
+def analyze_book(render_meta_path: str, cfg: ExtractorConfig = DEFAULT) -> dict:
+    """分析书籍结构，返回 BookProfile dict。"""
     meta = json.loads(Path(render_meta_path).read_text(encoding="utf-8"))
     pages = meta["pages"]
     samples = _sample_pages(pages, cfg.analyze_sample_pages)
 
     content: list[dict] = []
     for p in samples:
-        content.append({"type": "text", "text": f"【第 {p['page']} 页】"})
+        content.append({"type": "text", "text": f"[Page {p['page']}]"})
         content.append({
             "type": "image",
             "source": {
                 "type": "base64",
                 "media_type": "image/png",
-                "data": _encode_image(p["image"], 800),  # 分析阶段用小图省 token
+                "data": _encode_image(p["image"], 800),
             },
         })
     content.append({
         "type": "text",
-        "text": "以上是这本书的抽样页面（首/中/尾各取）。请分析这本书的排版结构和内容特征，按 schema 输出。"
+        "text": "These are sampled pages from the book (beginning, middle, end). Analyze the structure and output one profile object in the 'items' array.",
     })
 
-    client = anthropic.Anthropic()
-    msg = client.messages.create(
-        model=cfg.model,
-        max_tokens=1000,
-        system=_ANALYZE_SYSTEM,
-        thinking={"type": "disabled"},
-        output_config={
-            "effort": "low",
-            "format": {"type": "json_schema", "schema": _PROFILE_SCHEMA}
-        },
-        messages=[{"role": "user", "content": content}],
-    )
-
-    for block in msg.content:
-        if getattr(block, "type", None) == "text":
-            return json.loads(block.text)
-
-    return {}
+    items = create_message(_ANALYZE_SYSTEM, content, cfg, _PROFILE_SCHEMA)
+    return items[0] if items else {}

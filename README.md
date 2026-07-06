@@ -137,6 +137,38 @@ Point it at any scanned PDF, give it a 2-line example of what you want, and it h
 第 3 步：extract_pdf        → 跑全书
 ```
 
+### 支持的模型
+
+工具支持 Claude、GPT-4o 和 Gemini，默认使用 Claude（推荐）。
+
+| 提供商 | 默认模型 | API Key 环境变量 | 获取 Key |
+|--------|---------|----------------|---------|
+| **Anthropic**（推荐） | `claude-sonnet-4-6` | `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com/) |
+| OpenAI | `gpt-4o` | `OPENAI_API_KEY` | [platform.openai.com](https://platform.openai.com/) |
+| Google | `gemini-2.0-flash` | `GOOGLE_API_KEY` | [aistudio.google.com](https://aistudio.google.com/) |
+
+**切换到其他模型（命令行）：**
+
+```bash
+python -m pdf_extractor run --pdf book.pdf --example "..." --provider openai
+python -m pdf_extractor run --pdf book.pdf --example "..." --provider google --model gemini-2.0-flash
+```
+
+**切换到其他模型（MCP 配置）：**
+
+在 `~/.claude/settings.json` 的 `env` 里设置：
+
+```json
+"env": {
+  "OPENAI_API_KEY": "sk-...",
+  "PDF_EXTRACTOR_PROVIDER": "openai"
+}
+```
+
+> **注意：** `--batch` 省 50% 费用的功能仅 Anthropic 支持，其他提供商不支持 Batch API。
+
+---
+
 ### 安装
 
 **1. 克隆仓库**
@@ -432,8 +464,56 @@ Once installed, Claude has access to three tools:
 ## Requirements
 
 - [Claude Code](https://claude.ai/code) installed
-- An [Anthropic API key](https://console.anthropic.com/)
 - Python 3.10+
+- An API key from one of the supported providers (see below)
+
+---
+
+## Supported Models
+
+The tool works with Claude (default), GPT-4o, and Gemini. Claude is recommended — it has the best structured output support and the two-phase prompt optimization is tuned for it.
+
+| Provider | Default model | API key env variable | Get key |
+|----------|--------------|----------------------|---------|
+| **Anthropic** (recommended) | `claude-sonnet-4-6` | `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com/) |
+| OpenAI | `gpt-4o` | `OPENAI_API_KEY` | [platform.openai.com](https://platform.openai.com/) |
+| Google | `gemini-2.0-flash` | `GOOGLE_API_KEY` | [aistudio.google.com](https://aistudio.google.com/) |
+
+**Using a non-default model:**
+
+```bash
+# Use a specific model
+python -m pdf_extractor run --pdf book.pdf --example "..." --provider openai --model gpt-4o-mini
+python -m pdf_extractor run --pdf book.pdf --example "..." --provider google --model gemini-2.0-flash
+```
+
+**In MCP settings (`~/.claude/settings.json`):**
+
+```json
+{
+  "mcpServers": {
+    "pdf-extractor": {
+      "command": "python",
+      "args": ["/path/to/scanned-pdf-extractor-skill/server.py"],
+      "env": {
+        "ANTHROPIC_API_KEY": "sk-ant-...",
+        "PDF_EXTRACTOR_PROVIDER": "anthropic"
+      }
+    }
+  }
+}
+```
+
+To use OpenAI or Google instead:
+
+```json
+"env": {
+  "OPENAI_API_KEY": "sk-...",
+  "PDF_EXTRACTOR_PROVIDER": "openai"
+}
+```
+
+> **Note on Batch API:** The 50% cost saving with `--batch` is only available when using Anthropic. Other providers do not support batch mode.
 
 ---
 
