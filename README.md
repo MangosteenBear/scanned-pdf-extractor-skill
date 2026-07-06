@@ -71,43 +71,62 @@ cd scanned-pdf-extractor-skill
 pip install -r requirements.txt
 ```
 
-**3. Copy the skill file to Claude Code**
+**3. Register as an MCP server in Claude Code**
+
+Add this to your Claude Code settings (`~/.claude/settings.json`):
+
+```json
+{
+  "mcpServers": {
+    "pdf-extractor": {
+      "command": "python",
+      "args": ["/path/to/scanned-pdf-extractor-skill/server.py"],
+      "env": {
+        "ANTHROPIC_API_KEY": "sk-ant-..."
+      }
+    }
+  }
+}
+```
+
+Replace `/path/to/` with the actual path where you cloned the repo.
+
+**4. (Optional) Also register the skill file**
 
 ```bash
 cp SKILL.md ~/.claude/skills/pdf-extract.md
 ```
 
-This registers the skill so Claude Code knows when and how to run it.
-
-**4. Set your API key**
-
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-```
-
-Or pass it directly with `--api-key` each time.
-
 ---
 
 ## Usage
 
-### Option A: Use it through Claude Code (recommended)
+### Option A: MCP tools in Claude Code (recommended)
 
-In Claude Code, type `/pdf-extract` to invoke the skill directly, or just describe what you want:
+Once the MCP server is registered, Claude has direct access to these tools — no commands needed. Just tell Claude what you want:
 
-> "Extract all Q&A from this book: `/path/to/mybook.pdf`"
+> "Analyze the structure of `/path/to/mybook.pdf`"
 
-Claude will walk you through providing an extraction example, then run the full pipeline automatically — showing progress and cost as it goes.
+> "Extract all Q&A from `/path/to/mybook.pdf`. Here's an example of what I want:
+> Q: What is delta?
+> A: Delta measures the sensitivity of an option's price..."
 
-You can also pass details upfront:
+> "Test extraction on pages 1-20 of this book first"
 
-> `/pdf-extract --pdf /path/to/mybook.pdf --pages 1-30`
+Claude will call the tools directly and show you the results. The three available tools are:
 
-The skill handles everything: analyzing the book structure, generating the right prompt, extracting, and deduplicating.
+| Tool | What it does | When to use |
+|------|-------------|-------------|
+| `analyze_pdf` | Samples ~9 pages, returns book profile | Before extracting, to understand structure |
+| `extract_pages_only` | Extracts a page range | Test your example on a small section first |
+| `extract_pdf` | Full pipeline, whole book | When you're ready to extract everything |
 
-### Option B: Run it directly from the command line
+### Option B: Command line
 
 ```bash
+python server.py  # starts the MCP server manually
+
+# or use the CLI directly:
 python -m pdf_extractor run \
   --pdf /path/to/mybook.pdf \
   --example "Q: What is delta hedging?\nA: Delta hedging involves..."
